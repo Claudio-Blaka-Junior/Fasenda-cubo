@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fazenda Cubo</title>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--wood:#6b4423;--dark:#3b2410;--cream:#f6e7bd;--grass:#5fa33a}
+html,body{margin:0;height:100%;overflow:hidden;background:#8fd0ff;font-family:'Silkscreen','Courier New',monospace;color:var(--cream)}
+canvas{display:block;cursor:crosshair}
+.panel{background:var(--wood);border:4px solid var(--dark);box-shadow:inset 0 0 0 3px #8a5a2e;image-rendering:pixelated}
+#stats{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));padding:10px 14px;font-size:15px;line-height:1.9}
+#cross{position:fixed;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;pointer-events:none;mix-blend-mode:difference}
+#cross:before,#cross:after{content:"";position:absolute;background:#fff}
+#cross:before{left:8px;top:0;width:2px;height:18px}#cross:after{top:8px;left:0;height:2px;width:18px}
+#hint{position:fixed;left:50%;top:calc(50% + 28px);transform:translateX(-50%);font-size:14px;text-shadow:2px 2px 0 var(--dark);pointer-events:none;white-space:nowrap}
+#toast{position:fixed;left:50%;bottom:calc(36px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:10px 18px;font-size:15px;opacity:0;transition:opacity .25s;pointer-events:none}
+#ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(40,70,30,.55)}
+#ov .panel{padding:28px 34px;max-width:440px;text-align:left}
+h1{margin:0 0 6px;font-size:34px;letter-spacing:1px;text-shadow:3px 3px 0 var(--dark)}
+p{margin:6px 0;font-size:14px;line-height:1.6}
+#go{margin-top:16px;width:100%;padding:14px;font:700 18px 'Silkscreen',monospace;color:#fff;background:var(--grass);border:4px solid #2f5a1c;box-shadow:inset 0 -6px 0 #46802a;cursor:pointer}
+#go:hover{background:#6bb544}#go:focus-visible{outline:3px solid #fff}
+</style></head><body>
+<div id="stats" class="panel">🥛 Leite: <b id="s1">0</b><br>🥚 Ovos: <b id="s2">0</b><br>🐟 Peixes: <b id="s3">0</b></div>
+<div id="cross"></div><div id="hint"></div><div id="toast" class="panel"></div>
+<div id="ov"><div class="panel"><h1>Fazenda Cubo</h1>
+<p>Explore a fazenda em primeira pessoa: curral com vacas, galinheiro, plantação de trigo e o tanque de pesca.</p>
+<p>W A S D: andar · Shift: correr · Espaço: pular</p>
+<p>Clique: ordenhar vacas, pegar ovos e pescar no tanque.</p>
+<button id="go">Entrar na fazenda</button></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x8fd0ff);scene.fog=new THREE.Fog(0x8fd0ff,35,95);
+const cam=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,.1,200);cam.rotation.order='YXZ';scene.add(cam);
+scene.add(new THREE.HemisphereLight(0xffffff,0x6a8f4a,.8));
+const sun=new THREE.DirectionalLight(0xfff2cc,.8);sun.position.set(25,40,15);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+const sc=sun.shadow.camera;sc.left=sc.bottom=-34;sc.right=sc.top=34;sc.far=120;scene.add(sun);
+
+const texC={},matC={};
+function mat(hex,rx=1,ry=1){const k=hex+'_'+rx+'_'+ry;if(matC[k])return matC[k];
+ let t=texC[hex];if(!t){const c=document.createElement('canvas');c.width=c.height=8;const g=c.getContext('2d'),co=new THREE.Color(hex);
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){const v=.88+Math.random()*.24;g.fillStyle=`rgb(${Math.min(255,co.r*255*v)|0},${Math.min(255,co.g*255*v)|0},${Math.min(255,co.b*255*v)|0})`;g.fillRect(x,y,1,1)}
+  t=new THREE.CanvasTexture(c);t.magFilter=t.minFilter=THREE.NearestFilter;texC[hex]=t}
+ const tt=t.clone();tt.needsUpdate=true;tt.wrapS=tt.wrapT=THREE.RepeatWrapping;tt.repeat.set(rx,ry);
+ return matC[k]=new THREE.MeshLambertMaterial({map:tt})}
+function box(w,h,d,hex,x,y,z,p=scene){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(hex,Math.max(1,Math.round(Math.max(w,d))),Math.max(1,Math.round(h))));
+ m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;p.add(m);return m}
+const cols=[];const col=(x0,z0,x1,z1,h)=>cols.push({x0,z0,x1,z1,h});
+const cbox=(cx,cz,w,d,h)=>col(cx-w/2,cz-d/2,cx+w/2,cz+d/2,h);
+
+// chão
+const gr=new THREE.Mesh(new THREE.PlaneGeometry(160,160),mat(0x5fa33a,160,160));gr.rotation.x=-Math.PI/2;gr.receiveShadow=true;scene.add(gr);
+box(2.4,.04,44,0x9a7a48,2,.02,0);box(30,.04,2.4,0x9a7a48,8,.02,8.5);box(20,.04,2.4,0x9a7a48,-10,.02,-3);
+
+// cercas
+function fence(x0,z0,x1,z1){const dx=x1-x0,dz=z1-z0,L=Math.hypot(dx,dz),n=Math.max(1,Math.round(L)),h=Math.abs(dz)<Math.abs(dx);
+ for(let i=0;i<=n;i++)box(.2,1.3,.2,0x6e4a26,x0+dx*i/n,.65,z0+dz*i/n);
+ [.5,1.0].forEach(y=>box(h?L:.1,.12,h?.1:L,0x9a6b38,(x0+x1)/2,y,(z0+z1)/2));
+ col(Math.min(x0,x1)-.1,Math.min(z0,z1)-.1,Math.max(x0,x1)+.1,Math.max(z0,z1)+.1,1.5)}
+[[-23,-23,23,-23],[-23,-23,-23,23],[23,-23,23,23],[-23,23,-2,23],[2,23,23,23],
+ [0,-19,16,-19],[0,-19,0,-5],[16,-19,16,-5],[0,-5,5,-5],[8,-5,16,-5],
+ [-22,0,-12,0],[-22,0,-22,10],[-22,10,-12,10],[-12,0,-12,3],[-12,6,-12,10]].forEach(s=>fence(...s));
+[-2,2].forEach(x=>box(.4,2.6,.4,0x6e4a26,x,1.3,23));box(4.8,.3,.4,0x9a6b38,0,2.5,23);
+
+// árvores
+function tree(x,z,s=1){box(.8,4*s,.8,0x6b4a2b,x,2*s,z);const t=3.6*s;box(3.2,1.6,3.2,0x3f8f2f,x,t+.2,z);box(2.2,1.4,2.2,0x4aa33a,x,t+1.4,z);box(1.2,.8,1.2,0x57b845,x,t+2.3,z);cbox(x,z,.8,.8,4)}
+[[-20,-20],[-4,-21],[19,-21],[21,-8],[21,1],[-21,15],[-20,20],[14,20],[20,20],[-4,-1]].forEach(t=>tree(t[0],t[1],.9+Math.random()*.3));
+
+// celeiro
+const bx=-11,bz=-12;box(10,4.5,8,0xb5322a,bx,2.25,bz);cbox(bx,bz,10,8,6.5);
+[-5,5].forEach(dx=>[-4,4].forEach(dz=>box(.4,4.6,.4,0xf4efe6,bx+dx,2.3,bz+dz)));
+box(10.2,.3,.3,0xf4efe6,bx,4.4,bz+4.1);box(3.6,3.4,.12,0xf4efe6,bx,1.7,bz+4.02);box(3,3,.14,0x7a1f1a,bx,1.5,bz+4.04);
+[.82,-.82].forEach(a=>{const m=box(.14,4,.1,0xf4efe6,bx,1.5,bz+4.12);m.rotation.z=a});
+[11,8.8,6.6,4.4,2.2].forEach((w,i)=>box(w,.5,8.8,0x5a3a1c,bx,4.75+i*.5,bz));box(1.4,1.4,.1,0xf4efe6,bx,5.6,bz+4.45);box(1,1,.12,0x2b1a0c,bx,5.6,bz+4.47);
+box(3,9,3,0xc9ccd0,-19,4.5,-9);box(3.4,.6,3.4,0x8a8d92,-19,9.2,-9);box(2,.8,2,0x8a8d92,-19,9.9,-9);cbox(-19,-9,3,3,9.5);
+[[-5,-6],[-4,-6],[-5,-4.8],[-5,-7.2]].forEach(p=>{box(1,1,1,0xd9b84a,p[0],.5,p[1]);cbox(p[0],p[1],1,1,1)});box(1,1,1,0xd9b84a,-5,1.5,-6);
+
+// curral
+box(16,.03,14,0x7a5a36,8,.016,-12);box(3,.6,1,0x5a4a3a,12,.3,-17.5);box(2.6,.1,.6,0x3a7bd5,12,.58,-17.5);cbox(12,-17.5,3,1,.6);
+box(1.6,.9,1.6,0xd9b84a,3,.45,-17.5);cbox(3,-17.5,1.6,1.6,.9);
+
+// galinheiro
+(function(){const x=-20,z=2.1;box(3.2,1.8,2.4,0xc99a5b,x,1.1,z);[3.6,2.8,2].forEach((w,i)=>box(w,.3,2.8,0x8a3b2a,x,2.15+i*.3,z));
+ box(.9,1.2,.1,0x3a2410,x,.95,z+1.22);box(1.4,.1,1,0x9a6b38,x,.3,z+1.9).rotation.x=.3;box(1,.5,.6,0x9a6b38,x-1.9,.3,z);cbox(x,z,3.2,2.4,2.2)})();
+
+// plantação
+box(12,.1,10,0x5a3a20,-2,.05,7.5);
+const wm=new THREE.InstancedMesh(new THREE.BoxGeometry(.12,.9,.12),new THREE.MeshLambertMaterial({color:0xffffff}),500);
+(function(){let n=0;const m4=new THREE.Matrix4(),cl=new THREE.Color();
+ for(let r=0;r<10;r++)for(let c=0;c<14;c++)for(let k=0;k<3;k++){const h=.7+Math.random()*.5;m4.makeScale(1,h,1);
+  m4.setPosition(-7.6+c*.85+(Math.random()-.5)*.3,.1+.45*h,2.8+r*.9+(Math.random()-.5)*.3);wm.setMatrixAt(n,m4);
+  cl.setHex(Math.random()<.3?0x7fb83a:0xd8b640);cl.offsetHSL(0,0,(Math.random()-.5)*.08);wm.setColorAt(n++,cl)}
+ wm.count=n})();wm.castShadow=true;scene.add(wm);
+(function(){const x=-2,z=7;box(.2,2.4,.2,0x6b4a2b,x,1.2,z);box(1.8,.18,.18,0x6b4a2b,x,1.75,z);box(.55,.8,.38,0xd9a441,x,1.45,z);box(.57,.45,.4,0x3f6fb5,x,1.7,z);
+ box(.5,.5,.5,0xe8822a,x,2.3,z);box(.1,.1,.05,0x111,x-.12,2.35,z+.26);box(.1,.1,.05,0x111,x+.12,2.35,z+.26);box(.3,.06,.05,0x111,x,2.18,z+.26);
+ box(.9,.08,.9,0x3b2a1a,x,2.6,z);box(.5,.3,.5,0x3b2a1a,x,2.78,z);cbox(x,z,.5,.5,2.5)})();
+
+// tanque de pesca
+const PX=13,PZ=10;box(10,.04,8,0xcdb77a,PX,.02,PZ);
+const water=new THREE.Mesh(new THREE.BoxGeometry(10,.1,8),new THREE.MeshLambertMaterial({color:0x2f78c8,transparent:true,opacity:.7}));water.position.set(PX,.07,PZ);water.userData.kind='water';scene.add(water);
+box(11,.2,.5,0x8a8a8a,PX,.1,PZ-4.25);box(11,.2,.5,0x8a8a8a,PX,.1,PZ+4.25);box(.5,.2,8,0x8a8a8a,PX-5.25,.1,PZ);box(.5,.2,8,0x8a8a8a,PX+5.25,.1,PZ);
+box(6.5,.12,1.6,0x9a6b38,PX-2.5,.24,PZ);[[-5.5,-.7],[-5.5,.7],[-.5,-.7],[-.5,.7]].forEach(p=>box(.2,.5,.2,0x6e4a26,PX+p[0]-.5,.15,PZ+p[1]));col(PX-5.75,PZ-.8,PX+.75,PZ+.8,.3);
+box(.15,1.6,.15,0x6e4a26,PX-5.4,.9,PZ-.9);box(.35,.35,.35,0xffd34d,PX-5.4,1.8,PZ-.9);
+const fishes=[];for(let i=0;i<7;i++){const g=new THREE.Group(),c=[0xff8a2a,0xe8e2d0,0xf2c230,0xd9503a][i%4];
+ box(.2,.12,.5,c,0,0,0,g);box(.04,.1,.2,c,0,0,-.33,g);box(.02,.08,.06,0x111,.11,.02,.15,g);box(.02,.08,.06,0x111,-.11,.02,.15,g);
+ g.position.y=.045;scene.add(g);fishes.push({g,rx:1.5+Math.random()*3,rz:1+Math.random()*2.5,a:Math.random()*6.28,sp:(.3+Math.random()*.4)*(Math.random()<.5?1:-1),ph:Math.random()*6})}
+
+// placa
+(function(){const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d');g.fillStyle='#8a5a2e';g.fillRect(0,0,256,128);g.strokeStyle='#3b2410';g.lineWidth=8;g.strokeRect(4,4,248,120);
+ g.fillStyle='#f6e7bd';g.font='bold 30px monospace';g.textAlign='center';g.fillText('FAZENDA',128,58);g.fillText('CUBO',128,96);
+ const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;const m=new THREE.Mesh(new THREE.PlaneGeometry(3,1.5),new THREE.MeshBasicMaterial({map:t}));m.position.set(5,1.9,15);scene.add(m);
+ box(.2,2.2,.2,0x6e4a26,3.6,1.1,14.95);box(.2,2.2,.2,0x6e4a26,6.4,1.1,14.95)})();
+
+// flores
+(function(){const z=[[-17,-5,-20,-3],[-4,14,-20,-4],[-23,-11,-1,11],[-9,5,1,14],[7,19,5,15]];const N=90,st=new THREE.InstancedMesh(new THREE.BoxGeometry(.05,.3,.05),new THREE.MeshLambertMaterial({color:0x3f8f2f}),N),
+ hd=new THREE.InstancedMesh(new THREE.BoxGeometry(.18,.18,.18),new THREE.MeshLambertMaterial({color:0xffffff}),N),m4=new THREE.Matrix4(),cl=new THREE.Color();let n=0;
+ while(n<N){const x=(Math.random()-.5)*44,zz=(Math.random()-.5)*44;if(z.some(r=>x>r[0]&&x<r[1]&&zz>r[2]&&zz<r[3]))continue;
+  m4.makeTranslation(x,.15,zz);st.setMatrixAt(n,m4);m4.makeTranslation(x,.36,zz);hd.setMatrixAt(n,m4);hd.setColorAt(n++,cl.setHex([0xe63946,0xffd23f,0xff8fb1,0xffffff][n%4]))}
+ scene.add(st,hd)})();
+
+// céu
+const sunM=new THREE.Mesh(new THREE.BoxGeometry(9,9,2),new THREE.MeshBasicMaterial({color:0xfff2a0,fog:false}));sunM.position.set(50,80,30);sunM.lookAt(0,0,0);scene.add(sunM);
+const clouds=[];for(let i=0;i<8;i++){const g=new THREE.Group();for(let k=0;k<4;k++){const m=new THREE.Mesh(new THREE.BoxGeometry(6+Math.random()*5,2,4+Math.random()*3),new THREE.MeshBasicMaterial({color:0xffffff,fog:false}));m.position.set(k*4-6,Math.random()*.8,Math.random()*3);g.add(m)}
+ g.position.set(Math.random()*120-60,38+Math.random()*8,Math.random()*120-60);scene.add(g);clouds.push(g)}
+
+// animais
+const animals=[],inter=[water];
+function limb(p,x,y,z,w,h,d,hex){const g=new THREE.Group();g.position.set(x,y,z);p.add(g);box(w,h,d,hex,0,-h/2,0,g);return g}
+function makeCow(v){const g=new THREE.Group(),[b,s]=[[0xf2f2f2,0x1c1c1c],[0x7a4a2a,0xf2ede0],[0x2a2a2a,0xf2f2f2]][v%3],pk=0xf0a9b0;
+ box(1,.85,1.6,b,0,1.1,0,g);box(1.04,.4,.5,s,0,1.25,-.35,g);box(.5,.88,.6,s,.2,1.1,.4,g);box(.4,.15,.4,pk,0,.62,-.5,g);box(.1,.5,.1,b,0,1.2,-.85,g);
+ box(.65,.6,.6,b,0,1.5,1.05,g);box(.45,.28,.12,pk,0,1.4,1.38,g);[-1,1].forEach(k=>{box(.08,.1,.04,0x111,k*.2,1.62,1.36,g);box(.1,.22,.1,0xe8dcc0,k*.3,1.9,1,g);box(.2,.1,.16,s,k*.42,1.68,1,g)});
+ const legs=[[-.32,.55],[.32,.55],[-.32,-.55],[.32,-.55]].map(p=>limb(g,p[0],.72,p[1],.28,.72,.28,b));g.userData={kind:'cow',cd:0,legs};g.scale.setScalar(1.1);return g}
+function makeChicken(){const g=new THREE.Group(),w=0xfafafa;box(.42,.38,.6,w,0,.55,0,g);box(.26,.3,.26,w,0,.85,.3,g);box(.08,.12,.2,0xd62828,0,1.05,.3,g);box(.1,.08,.12,0xffc233,0,.85,.46,g);box(.06,.12,.06,0xd62828,0,.75,.43,g);
+ [-1,1].forEach(k=>{box(.04,.04,.03,0x111,k*.1,.9,.43,g);box(.06,.22,.34,0xe4e4e4,k*.25,.58,0,g)});box(.08,.3,.18,0xe4e4e4,0,.75,-.34,g);
+ const legs=[-.1,.1].map(x=>limb(g,x,.36,0,.06,.36,.06,0xf2b233));g.userData={kind:'ovo',cd:0,legs};g.scale.setScalar(1.3);return g}
+function addAnimal(g,pen,sp,av){g.position.set((pen[0]+pen[2])/2+Math.random()*2-1,0,(pen[1]+pen[3])/2+Math.random()*2-1);scene.add(g);inter.push(g);
+ const a={g,pen,sp,av,wait:Math.random()*3,ph:Math.random()*6};pick(a);animals.push(a)}
+function pick(a){let x,z,n=0;do{x=a.pen[0]+Math.random()*(a.pen[2]-a.pen[0]);z=a.pen[1]+Math.random()*(a.pen[3]-a.pen[1])}while(a.av&&x>a.av[0]&&x<a.av[2]&&z>a.av[1]&&z<a.av[3]&&n++<12);a.tx=x;a.tz=z}
+for(let i=0;i<4;i++)addAnimal(makeCow(i),[1.2,-18,14.8,-6],.7,[8.5,-18.5,15.5,-16.5]);
+for(let i=0;i<7;i++)addAnimal(makeChicken(),[-21.2,.8,-12.8,9.2],1.1,[-22,0,-17.5,4]);
+
+// jogador
+let yaw=0,pitch=0,px=1,py=0,pz=20,vy=0,ground=true,bob=0,swing=0,fishing=false,locked=false,drag=false,moved=0,started=false;
+const R=.3,st={leite:0,ovo:0,peixe:0},keys={};
+const arm=new THREE.Group();box(.2,.2,.2,0x3f6fb5,0,0,.15,arm);box(.17,.17,.5,0xe0ac82,0,0,-.2,arm);arm.position.set(.5,-.42,-.55);arm.rotation.set(.3,.2,0);cam.add(arm);
+const ray=new THREE.Raycaster();ray.far=7;
+function target(){ray.setFromCamera(new THREE.Vector2(0,0),cam);const h=ray.intersectObjects(inter,true)[0];if(!h)return null;let o=h.object;while(o&&!o.userData.kind)o=o.parent;
+ if(!o)return null;const k=o.userData.kind;if(k!=='water'&&h.distance>4.5)return null;return{k,o,p:h.point}}
+const $=id=>document.getElementById(id);let tt;
+function toast(t){const e=$('toast');e.textContent=t;e.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>e.style.opacity=0,1700)}
+function stats(){$('s1').textContent=st.leite;$('s2').textContent=st.ovo;$('s3').textContent=st.peixe}
+function act(){if(!started)return;swing=1;const t=target();if(!t)return;const now=performance.now();
+ if(t.k==='cow'||t.k==='ovo'){const u=t.o.userData;if(now<u.cd){toast(t.k==='cow'?'Essa vaca ainda está sem leite':'Ainda não tem ovo aqui');return}
+  u.cd=now+(t.k==='cow'?5000:4000);if(t.k==='cow'){st.leite++;toast('+1 balde de leite')}else{st.ovo++;toast('+1 ovo fresco')}stats()}
+ else if(t.k==='water'&&!fishing){fishing=true;const b=box(.2,.2,.2,0xd62828,t.p.x,.14,t.p.z);toast('Aguardando um peixe…');
+  setTimeout(()=>{scene.remove(b);fishing=false;if(Math.random()<.8){st.peixe++;stats();toast('Você pescou um peixe!')}else toast('Escapou! Tente de novo')},1200+Math.random()*2000)}}
+
+// controles
+const ov=$('ov');
+function begin(){started=true;ov.style.display='none';try{const r=renderer.domElement.requestPointerLock();if(r&&r.catch)r.catch(()=>{})}catch(e){}}
+$('go').onclick=begin;
+document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===renderer.domElement;if(!locked&&started){ov.style.display='flex';$('go').textContent='Continuar';started=false}});
+addEventListener('keydown',e=>{keys[e.code]=1;if(e.code==='Space')e.preventDefault()});addEventListener('keyup',e=>keys[e.code]=0);
+addEventListener('mousemove',e=>{if(!started||(!locked&&!drag))return;yaw-=e.movementX*.0023;pitch=Math.max(-1.5,Math.min(1.5,pitch-e.movementY*.0023));moved+=Math.abs(e.movementX)+Math.abs(e.movementY)});
+renderer.domElement.addEventListener('mousedown',()=>{if(locked)act();else if(started){drag=true;moved=0}});
+addEventListener('mouseup',()=>{if(drag&&moved<5)act();drag=false});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+const blk=(x,z,f)=>cols.some(c=>x+R>c.x0&&x-R<c.x1&&z+R>c.z0&&z-R<c.z1&&c.h>f+.35);
+const flr=(x,z,f)=>{let m=0;for(const c of cols)if(x+R*.5>c.x0&&x-R*.5<c.x1&&z+R*.5>c.z0&&z-R*.5<c.z1&&c.h<=f+.35)m=Math.max(m,c.h);return m};
+const clock=new THREE.Clock();let time=0;
+function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.05);time+=dt;
+ if(started){let fx=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0),fz=(keys.KeyS||keys.ArrowDown?1:0)-(keys.KeyW||keys.ArrowUp?1:0);
+  const l=Math.hypot(fx,fz)||1;fx/=l;fz/=l;const inW=px>8&&px<18&&pz>6&&pz<14&&flr(px,pz,py)===0;
+  const sp=(keys.ShiftLeft||keys.ShiftRight?6.5:4.2)*(inW?.5:1),dx=(fx*Math.cos(yaw)+fz*Math.sin(yaw))*sp*dt,dz=(-fx*Math.sin(yaw)+fz*Math.cos(yaw))*sp*dt;
+  if(!blk(px+dx,pz,py))px+=dx;if(!blk(px,pz+dz,py))pz+=dz;px=Math.max(-22.4,Math.min(22.4,px));pz=Math.max(-22.4,Math.min(22.4,pz));
+  if(keys.Space&&ground){vy=7.2;ground=false}vy-=22*dt;py+=vy*dt;const f=flr(px,pz,py);if(py<=f){py=f;vy=0;ground=true}else ground=false;
+  if((fx||fz)&&ground)bob+=dt*sp*2.2;
+  const t=target();$('hint').textContent=t?(t.k==='cow'?'Clique: ordenhar':t.k==='ovo'?'Clique: pegar ovo':fishing?'':'Clique: pescar'):''}
+ cam.position.set(px,py+1.62+Math.sin(bob)*.04,pz);cam.rotation.set(pitch,yaw,0);
+ swing=Math.max(0,swing-dt*3.5);arm.rotation.x=.3-Math.sin(swing*Math.PI)*1.1+Math.sin(bob)*.03;arm.position.y=-.42+Math.cos(bob*.5)*.01;
+ animals.forEach(a=>{const g=a.g,L=g.userData.legs;let walking=false;
+  if(a.wait>0){a.wait-=dt;if(g.userData.kind==='ovo')g.rotation.x=Math.max(0,Math.sin(time*7+a.ph))*.35}
+  else{g.rotation.x=0;const dx=a.tx-g.position.x,dz=a.tz-g.position.z,d=Math.hypot(dx,dz);
+   if(d<.25){a.wait=1+Math.random()*4;pick(a)}else{walking=true;g.position.x+=dx/d*a.sp*dt;g.position.z+=dz/d*a.sp*dt;
+    const df=((Math.atan2(dx,dz)-g.rotation.y+Math.PI*3)%(Math.PI*2))-Math.PI;g.rotation.y+=df*Math.min(1,dt*6);a.ph+=dt*a.sp*7}}
+  L.forEach((l,i)=>{const tg=walking?Math.sin(a.ph+(i===0||i===3?0:Math.PI))*.55:0;l.rotation.x+=(tg-l.rotation.x)*Math.min(1,dt*12)})});
+ fishes.forEach(f=>{f.a+=dt*f.sp;const x=Math.cos(f.a)*f.rx,z=Math.sin(f.a)*f.rz,s=f.sp>0?1:-1;
+  f.g.position.set(PX+x,.045,PZ+z);f.g.rotation.y=Math.atan2(-Math.sin(f.a)*f.rx*s,Math.cos(f.a)*f.rz*s)+Math.sin(time*6+f.ph)*.15});
+ clouds.forEach(c=>{c.position.x+=dt*1.2;if(c.position.x>80)c.position.x=-80});
+ renderer.render(scene,cam)}
+loop();
+</script></body></html>

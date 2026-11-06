@@ -9,9 +9,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:#8fd0ff;font-family:'S
 canvas{display:block;cursor:crosshair}
 .panel{background:var(--wood);border:4px solid var(--dark);box-shadow:inset 0 0 0 3px #8a5a2e;image-rendering:pixelated}
 #stats{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));padding:10px 14px;font-size:15px;line-height:1.9}
-#cross{position:fixed;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;pointer-events:none;mix-blend-mode:difference}
-#cross:before,#cross:after{content:"";position:absolute;background:#fff}
-#cross:before{left:8px;top:0;width:2px;height:18px}#cross:after{top:8px;left:0;height:2px;width:18px}
 #hint{position:fixed;left:50%;top:calc(50% + 28px);transform:translateX(-50%);font-size:14px;text-shadow:2px 2px 0 var(--dark);pointer-events:none;white-space:nowrap}
 #toast{position:fixed;left:50%;bottom:calc(36px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:10px 18px;font-size:15px;opacity:0;transition:opacity .25s;pointer-events:none}
 #ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(40,70,30,.55)}
@@ -22,7 +19,7 @@ p{margin:6px 0;font-size:14px;line-height:1.6}
 #go:hover{background:#6bb544}#go:focus-visible{outline:3px solid #fff}
 </style></head><body>
 <div id="stats" class="panel">🥛 Leite: <b id="s1">0</b><br>🥚 Ovos: <b id="s2">0</b><br>🐟 Peixes: <b id="s3">0</b></div>
-<div id="cross"></div><div id="hint"></div><div id="toast" class="panel"></div>
+<div id="hint"></div><div id="toast" class="panel"></div>
 <div id="ov"><div class="panel"><h1>Fazenda Cubo</h1>
 <p>Explore a fazenda em primeira pessoa: curral com vacas, galinheiro, plantação de trigo e o tanque de pesca.</p>
 <p>W A S D: andar · Shift: correr · Espaço: pular</p>
